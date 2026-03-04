@@ -18,6 +18,22 @@ async def query_history(
     return await get_history(limit=limit, offset=offset)
 
 
+@history_router.delete("/history")
+async def clear_history():
+    """Deletes all query history records."""
+    from backend.monitoring.metrics_tracker import clear_all_history
+    count = await clear_all_history()
+    return {"message": "All history deleted", "deleted_count": count}
+
+
+@history_router.delete("/history/{item_id}")
+async def delete_history_item(item_id: int):
+    """Deletes a specific query history record by ID."""
+    from backend.monitoring.metrics_tracker import delete_history_items
+    count = await delete_history_items([item_id])
+    return {"message": f"Deleted item {item_id}", "deleted_count": count}
+
+
 @metrics_router.get("/metrics", response_model=MetricsResponse)
 async def query_metrics():
     """Returns aggregate performance metrics."""
