@@ -1,10 +1,12 @@
 """
-LLM SQL Generator — calls OpenAI or Gemini to produce structured SQL output.
+LLM SQL Generator — uses Google Gemini to produce structured SQL output.
 Forces JSON response with {sql_query, confidence_score, tables_used}.
 """
 import json
 import time
 from typing import Optional
+
+import google.generativeai as genai
 
 from backend.config import settings
 from backend.models.schemas import LLMSQLOutput
@@ -68,43 +70,17 @@ Generate a corrected SQL query that fixes this error."""
 
 class LLMGenerator:
     def __init__(self):
-        self._openai_client = None
         self._gemini_model = None
-
-    def _get_openai_client(self):
-        if self._openai_client is None:
-            from openai import AsyncOpenAI
-            self._openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
-        return self._openai_client
 
     def _get_gemini_model(self):
         if self._gemini_model is None:
-            import google.generativeai as genai
             genai.configure(api_key=settings.gemini_api_key)
             self._gemini_model = genai.GenerativeModel(settings.gemini_model)
         return self._gemini_model
 
-    async def _call_openai(
-        self, system: str, user: str
-    ) -> tuple[str, int, int]:
-        client = self._get_openai_client()
-        response = await client.chat.completions.create(
-            model=settings.openai_model,
-            temperature=settings.llm_temperature,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-        )
-        raw = response.choices[0].message.content
-        usage = response.usage
-        return raw, usage.prompt_tokens, usage.completion_tokens
-
     async def _call_gemini(
         self, system: str, user: str
     ) -> tuple[str, int, int]:
-        import google.generativeai as genai
         model = self._get_gemini_model()
         full_prompt = f"{system}\n\n{user}\n\nRespond with ONLY valid JSON."
         response = await model.generate_content_async(
@@ -129,11 +105,7 @@ class LLMGenerator:
         Raises ValueError if JSON parsing fails.
         """
         user_prompt = _build_user_prompt(nl_query, relevant_tables, error_context)
-
-        if settings.llm_provider == "openai":
-            raw, pt, ct = await self._call_openai(SYSTEM_PROMPT, user_prompt)
-        else:
-            raw, pt, ct = await self._call_gemini(SYSTEM_PROMPT, user_prompt)
+        raw, pt, ct = await self._call_gemini(SYSTEM_PROMPT, user_prompt)
 
         # Parse and validate response
         try:
@@ -147,6 +119,46 @@ class LLMGenerator:
             raise ValueError(f"LLM returned invalid JSON: {e}\nRaw: {raw}")
 
         return output, raw, pt, ct
+
+    async def generate_prompts(self, relevant_tables: dict[str, TableSchema]) -> list[str]:
+        """
+        Dynamically generates 4 business-relevant question prompts based on the provided schema.
+        Returns a list of 4 string questions.
+        """
+        if not relevant_tables:
+            return ["Show top 5 rows", "Count total records"]
+
+        schema_block = "\n\n".join(t.to_prompt_text() for t in relevant_tables.values())
+        system_prompt = (
+            "You are a helpful data analyst. Given the database schema below, generate exactly 4 short, "
+            "realistic, and highly business-relevant analytical questions a user might ask.\n"
+            "Respond ONLY with a valid JSON array of 4 strings. No markdown formatting, no explanations."
+        )
+        user_prompt = f"Schema:\n{schema_block}"
+
+        try:
+            raw, _, _ = await self._call_gemini(system_prompt, user_prompt)
+
+            # Clean up markdown if any
+            clean_raw = raw.strip()
+            if clean_raw.startswith("```json"):
+                clean_raw = clean_raw[7:]
+            if clean_raw.endswith("```"):
+                clean_raw = clean_raw[:-3]
+
+            prompts = json.loads(clean_raw.strip())
+            if isinstance(prompts, list) and len(prompts) >= 4:
+                return prompts[:4]
+        except Exception as e:
+            print(f"Error generating dynamic prompts: {e}")
+
+        # Fallback if parsing fails
+        return [
+            "Show top 5 rows",
+            "What is the average value in all numeric columns?",
+            "Count total records",
+            "Show summary statistics"
+        ]
 
 
 # Module-level singleton
