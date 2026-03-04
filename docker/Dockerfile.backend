@@ -1,0 +1,24 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# System dependencies for sentence-transformers and faiss
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+
+# Install all dependencies from requirements.txt
+# --timeout=300 guards against slow PyPI connections on large packages
+RUN pip install --no-cache-dir --timeout=300 -r requirements.txt
+
+COPY . .
+
+# Pre-download the embedding model at build time so startup is instant
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+
+EXPOSE 8000
+
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
