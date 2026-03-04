@@ -1,174 +1,197 @@
-# 🤖 NL2SQL Agent
+# NL2SQL Agent
 
-Hey there! 👋 Welcome to the **NL2SQL Agent** repository. 
+I built this project because I was tired of switching between a SQL client and whatever tool was generating queries for me. The idea is simple: you ask a question in plain English, and the system figures out which tables are relevant, generates the SQL, validates it, and runs it — all in one shot.
 
-Ever wished you could just *talk* to your database instead of writing complex SQL queries? That's exactly what this project does! It's a production-grade AI system that takes your natural language questions and magically (well, programmatically) converts them into validated, optimized SQL. 
-
-What's cool is that it actually understands your database schema, has built-in self-correction loops (so if the LLM makes a mistake, it tries to fix it!), and even comes with a slick real-time analytics dashboard. 📊
+It connects to your PostgreSQL database, reads the schema automatically, and uses Google Gemini to handle the actual natural language understanding. There's a self-correction loop built in, so if the generated SQL has an error, it'll try to fix itself up to two times before giving up.
 
 ---
 
-## ✨ Why this is awesome (Features)
+## What it can do
 
-- **🧠 Schema Intelligence**: It doesn't just guess; it dynamically loads your DB schema and uses `sentence-transformers` + FAISS to pick out the most relevant tables for your specific question.
-- **🗣️ Smart LLM Generation**: Powered by OpenAI (`gpt-4o`) or Google Gemini (`gemini-1.5-pro`). It uses few-shot examples, enforces JSON output, and keeps temperatures deterministic for reliable results.
-- **🛡️ Rock-Solid Validation Loop**: We don't just blindly run AI-generated SQL. There's a 4-stage validation process:
-  1. Empty check
-  2. Keyword blocklist
-  3. Multi-statement guard
-  4. AST parsing via `sqlglot`
-  *Plus, it automatically retries up to 2 times if something looks fishy!*
-- **🔒 Security First**: It enforces SELECT-only queries both at the keyword and AST level. We combine this with a read-only DB user, row limit injections, and strict query timeouts. Your DB is safe!
-- **📈 Analytics Dashboard**: A beautiful Streamlit UI where you can play with queries, check the transparency panel to see *how* it arrived at the SQL, and view performance metrics and history.
-- **🧪 Built-in Evaluation Suite**: Comes with a 20 NL/SQL pair dataset to measure exact match, correction rate, and latency.
+- **Talk to your database in plain English** — Type something like "show me the top 10 customers by revenue last quarter" and get back actual results.
+- **Smart table selection** — It doesn't dump the entire schema into the prompt. It uses FAISS + sentence embeddings to find the most relevant tables for your specific question, keeping things accurate and fast.
+- **Validates every query before running it** — There's a 4-stage check: keyword blocklist → multi-statement guard → AST parsing → SELECT-only enforcement. Nothing destructive ever reaches the database.
+- **Self-healing on errors** — If the SQL fails, the agent feeds the error back to Gemini and asks for a corrected version. It retries up to twice.
+- **File uploads** — You can upload a CSV or Parquet file and it'll infer the schema, load it into PostgreSQL, and let you query it right away.
+- **Dashboard with history and metrics** — There's a React frontend showing query history, success rates, latency stats, and a transparency panel that shows you exactly what SQL was generated and why.
 
 ---
 
-## 🏗️ How it works (Architecture)
+## Architecture
 
-Here's the journey of a single question:
+Here's roughly what happens when you send a question:
 
-```text
-🗣️ NL Query → 🔍 FAISS Schema Selector → 🧠 LLM Generator → 🛠️ Validator → 🔄 Correction Loop → ⚡ Executor → 📊 Dashboard
+```
+Your question
+    → FAISS picks the most relevant tables from the schema
+    → Gemini generates SQL with a confidence score
+    → Validator checks it's safe (keyword + AST level)
+    → If it fails, the correction loop retries with the error context
+    → Executor runs it against PostgreSQL with a row limit + timeout
+    → Results come back to the frontend
+```
+
+**Backend** is FastAPI + SQLAlchemy (async). **Frontend** is React (Vite). They talk over a REST API.
+
+```
+nl2sql-agent/
+├── backend/
+│   ├── main.py                 # FastAPI entry point, lifespan startup hooks
+│   ├── config.py               # All settings live here (pydantic-settings)
+│   ├── core/
+│   │   ├── schema_loader.py    # Reads table/column definitions from Postgres
+│   │   ├── embedder.py         # FAISS index for table selection
+│   │   ├── llm_generator.py    # Calls Gemini, parses JSON output
+│   │   ├── validator.py        # 4-stage SQL safety checks
+│   │   ├── correction_loop.py  # Retry-with-error-context loop
+│   │   ├── executor.py         # Runs SQL, enforces row limits + timeouts
+│   │   └── ingestion.py        # Handles file upload → Postgres ingestion
+│   ├── api/routes/
+│   │   ├── query.py            # POST /api/query
+│   │   ├── analytics.py        # GET /api/history, GET /api/metrics
+│   │   └── upload.py           # POST /api/upload
+│   ├── models/                 # Pydantic schemas
+│   ├── monitoring/             # Metrics tracking, log DB
+│   └── evaluation/             # 20-pair NL/SQL eval suite
+├── frontend/
+│   └── src/pages/
+│       ├── QueryConsole.jsx    # Main query interface
+│       ├── DataUpload.jsx      # File upload page
+│       ├── Analytics.jsx       # Charts and stats
+│       ├── History.jsx         # Past queries
+│       └── Transparency.jsx    # How the SQL was made
+├── docker/                     # Dockerfiles + init.sql for Postgres
+├── docker-compose.yml
+├── requirements.txt
+└── .env.example
 ```
 
 ---
 
-## 🚀 Let's get it running! (Quick Start)
+## Getting started
 
-### 1️⃣ Clone & Configure
+### What you'll need
 
-First things first, grab the code and set up your environment variables:
+- Python 3.10+
+- Node.js 18+ (for the frontend)
+- PostgreSQL (or just use Docker)
+- A [Google Gemini API key](https://aistudio.google.com/app/apikey)
+
+### 1. Clone and configure
 
 ```bash
 git clone git@github.com:saihub404/nl2sql-agent.git
 cd nl2sql-agent
 cp .env.example .env
 ```
-*(Don't forget to open up `.env` and drop in your `OPENAI_API_KEY` and `DATABASE_URL`!)*
 
-### 2️⃣ Run with Docker Compose (Recommended 🐳)
+Open `.env` and fill in your Gemini API key and database URL. That's the minimum you need.
 
-The easiest way to get everything spinning is with Docker:
+### 2. Run with Docker (easiest)
 
 ```bash
 docker-compose up --build
 ```
 
-Once that's running, you can hit up:
-- 🎨 **Dashboard**: [http://localhost:8501](http://localhost:8501)
-- 📖 **API Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
-- 🩺 **Health Check**: [http://localhost:8000/health](http://localhost:8000/health)
+This starts PostgreSQL, the FastAPI backend, and the React frontend together.
 
-### 3️⃣ Run locally (If you prefer doing things by hand 🛠️)
+Once it's up:
+- **Frontend**: http://localhost:5173
+- **API docs**: http://localhost:8000/docs
+- **Health check**: http://localhost:8000/health
+
+### 3. Run locally without Docker
 
 ```bash
-# Install all the Python goodies
+# Install Python dependencies
 pip install -r requirements.txt
 
-# Start the FastAPI backend
+# Start the backend
 python -m backend.main
 
-# In a new terminal, launch the Streamlit frontend
-BACKEND_URL=http://localhost:8000 streamlit run frontend/app.py
+# In another terminal, start the frontend
+cd frontend
+npm install
+npm run dev
 ```
 
 ---
 
-## 📁 What's inside? (Project Structure)
+## Environment variables
 
-Here's a quick tour of the codebase so you know where everything lives:
+Everything is configured through `.env`. Here's what each variable does:
 
-```text
-nl2sql-agent/
-├── backend/                   # 🧠 The brain of the operation
-│   ├── main.py                # FastAPI app entry point
-│   ├── config.py              # Settings manager (pydantic-settings)
-│   ├── api/routes/            # API Endpoints (query, analytics)
-│   ├── core/                  # Core logic! 
-│   │   ├── schema_loader.py   # Reads your DB schema
-│   │   ├── embedder.py        # FAISS table selector magic
-│   │   ├── llm_generator.py   # Talks to OpenAI/Gemini
-│   │   ├── validator.py       # Keeps the SQL safe & sound
-│   │   ├── correction_loop.py # "Let's try that SQL again"
-│   │   └── executor.py        # Runs the final SQL safely
-│   ├── models/                # DB Models and Pydantic schemas
-│   ├── monitoring/            # Tracks metrics and logs
-│   └── evaluation/            # Scripts to test how smart it is
-├── frontend/                  # 🎨 The pretty face
-│   └── app.py                 # Streamlit 4-tab dashboard
-├── docker/                    # 🐳 Dockerfiles and DB initialization scripts
-├── tests/                     # 🧪 Unit tests ensuring things don't break
-├── docker-compose.yml         # Container orchestration
-├── requirements.txt           # Python dependencies
-└── .env.example               # Template for your secrets
-```
+| Variable | Default | Description |
+|---|---|---|
+| `GEMINI_API_KEY` | — | Your Google Gemini API key (required) |
+| `GEMINI_MODEL` | `gemini-2.0-flash` | Which Gemini model to use |
+| `DATABASE_URL` | — | Your PostgreSQL connection string (asyncpg format) |
+| `LOG_DATABASE_URL` | `sqlite:///./nl2sql_logs.db` | Where to store query history |
+| `EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Sentence transformer model for table selection |
+| `TOP_K_TABLES` | `5` | How many tables to pass to Gemini per query |
+| `QUERY_ROW_LIMIT` | `1000` | Max rows returned per query |
+| `QUERY_TIMEOUT_SECONDS` | `10` | Query timeout before it's killed |
+| `MAX_CORRECTION_RETRIES` | `2` | How many times it'll try to fix a bad query |
+| `CONFIDENCE_THRESHOLD` | `0.6` | Minimum confidence score to accept a result |
+| `LLM_TEMPERATURE` | `0.1` | Low temperature keeps SQL generation deterministic |
 
 ---
 
-## 🧪 Testing
+## API endpoints
 
-Want to make sure everything works or run the evaluation suite?
+If you want to use the backend directly (e.g., build your own frontend or integrate into a pipeline):
+
+**POST /api/query**
+```json
+{ "query": "Which regions had the most orders last month?" }
+```
+
+**GET /api/metrics**
+Returns success rate, average latency, correction rate, confidence distribution.
+
+**GET /api/history?limit=50&offset=0**
+Paginated list of past queries and their results.
+
+**POST /api/upload**
+Upload a CSV or Parquet file. The backend infers the schema and loads it into Postgres automatically.
+
+**GET /health**
+Returns DB connection status, number of tables loaded, and FAISS index status.
+
+---
+
+## Security
+
+The system is designed to be safe to point at a real database, even one with sensitive data. Here's what's in place:
+
+1. **Keyword blocklist** — `DROP`, `DELETE`, `UPDATE`, `ALTER`, `INSERT`, `EXEC` are rejected immediately via regex.
+2. **AST enforcement** — Uses `sqlglot` to parse the query and verify it's a pure `SELECT` statement at the syntax tree level, not just the text level.
+3. **Read-only database user** — The `DATABASE_URL` should point to a Postgres role with only `SELECT` privileges. Even if validation failed somehow, the DB would reject it.
+4. **Row limit injection** — The executor rewrites the query's AST to enforce a `LIMIT` clause so you won't accidentally pull millions of rows.
+5. **Query timeout** — `asyncio.wait_for` kills any query that runs longer than `QUERY_TIMEOUT_SECONDS`.
+
+---
+
+## Running tests
 
 ```bash
-# Run the unit tests
+# Unit tests
 pytest tests/ -v
 
-# Run the evaluation suite (Note: needs a DB connection!)
+# Evaluation suite (needs a live DB connection)
 python -m backend.evaluation.eval_runner
 ```
 
----
-
-## ⚙️ Configuration Knobs
-
-You can tweak the agent's behavior by changing these in your `.env` file:
-
-| Variable | Default | What does it do? 🤔 |
-|---|---|---|
-| `LLM_PROVIDER` | `openai` | Choose between `openai` or `gemini` |
-| `OPENAI_API_KEY` | — | Your secret OpenAI API key |
-| `DATABASE_URL` | — | Where does your PostgreSQL live? (asyncpg format) |
-| `LOG_DATABASE_URL` | `sqlite...` | Where to store query history and logs |
-| `TOP_K_TABLES` | `5` | How many relevant tables to give the LLM |
-| `QUERY_ROW_LIMIT` | `1000` | Max number of rows a query can return |
-| `QUERY_TIMEOUT_SECONDS` | `10` | How long to wait before killing a slow query |
-| `MAX_CORRECTION_RETRIES` | `2` | How many times the LLM can try fixing a bad query |
-| `CONFIDENCE_THRESHOLD` | `0.6` | The minimum confidence score needed to accept a query |
+The eval suite runs 20 NL/SQL pairs and measures exact match accuracy, correction rate, and average latency.
 
 ---
 
-## 🔒 Serious about Security
+## Notes
 
-We don't play around with your data. Here is our 5-layer security model:
-
-1. **🚫 Keyword Blocklist**: Sneaky words like `DROP`, `DELETE`, `UPDATE`, and `ALTER` are blocked via regex.
-2. **🌳 AST Enforcement**: We use `sqlglot` to parse the Abstract Syntax Tree (AST) to guarantee it's strictly a `SELECT` query.
-3. **👤 Read-Only DB User**: The system connects using a PostgreSQL role that physically cannot write to the database.
-4. **🛑 Row Limit Injection**: We actively modify the query's AST to enforce a `LIMIT` so you don't accidentally dump 10 million rows.
-5. **⏱️ Query Timeout**: If a query takes too long, `asyncio.wait_for` kills it without mercy.
+- The FAISS index is built in memory at startup. It takes a few seconds on large schemas but nothing is persisted to disk.
+- Uploaded files (CSV/Parquet) are ingested into Postgres as new tables. The FAISS index is rebuilt after each upload.
+- Gemini's JSON response mode is used wherever possible to avoid having to parse freeform text.
 
 ---
 
-## � Let's talk to the API (Reference)
-
-If you're building on top of this or just want to use the endpoints directly:
-
-### 📥 Ask a question `POST /api/query`
-```json
-{ "query": "Which customers placed orders last month?" }
-```
-
-### 📊 Get stats `GET /api/metrics`
-Tells you the success rate, average latency, correction rate, and confidence distribution.
-
-### 📜 See the past `GET /api/history?limit=50&offset=0`
-Retrieves a paginated list of your query history.
-
-### 🩺 Check the pulse `GET /health`
-Verifies the DB connection status, how many tables are loaded, and if FAISS is ready to go.
-
----
-
-### 🎉 Happy Querying!
-If you find this project useful, feel free to give it a ⭐ or open a PR if you have improvements!
+If you run into issues or want to extend this (e.g., add support for more databases or a different LLM), feel free to open an issue or a PR. The architecture is intentionally modular so swapping components should be straightforward.
