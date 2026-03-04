@@ -79,11 +79,8 @@ class IngestionEngine:
                 chunk = df.iloc[start: start + CHUNK_SIZE]
 
                 # Serialize chunk to CSV buffer for asyncpg COPY
-                buf = io.StringIO()
-                chunk_renamed = chunk.copy()
-                chunk_renamed.columns = col_names
-                chunk_renamed.to_csv(buf, index=False, header=False, na_rep="\\N")
-                buf.seek(0)
+                csv_bytes = chunk_renamed.to_csv(index=False, header=False, na_rep="\\N").encode("utf-8")
+                buf = io.BytesIO(csv_bytes)
 
                 await conn.copy_to_table(
                     schema.table_name,
@@ -144,10 +141,9 @@ class IngestionEngine:
                 low_memory=False,
             )
             for chunk in reader:
-                buf = io.StringIO()
                 chunk.columns = col_names
-                chunk.to_csv(buf, index=False, header=False, na_rep="\\N")
-                buf.seek(0)
+                csv_bytes = chunk.to_csv(index=False, header=False, na_rep="\\N").encode("utf-8")
+                buf = io.BytesIO(csv_bytes)
                 await conn.copy_to_table(
                     schema.table_name,
                     source=buf,
@@ -181,9 +177,8 @@ class IngestionEngine:
             for batch in pf.iter_batches(batch_size=CHUNK_SIZE):
                 chunk = batch.to_pandas()
                 chunk.columns = col_names[:len(chunk.columns)]
-                buf = io.StringIO()
-                chunk.to_csv(buf, index=False, header=False, na_rep="\\N")
-                buf.seek(0)
+                csv_bytes = chunk.to_csv(index=False, header=False, na_rep="\\N").encode("utf-8")
+                buf = io.BytesIO(csv_bytes)
                 await conn.copy_to_table(
                     schema.table_name,
                     source=buf,
