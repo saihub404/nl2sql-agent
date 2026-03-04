@@ -4,7 +4,7 @@ All values are read from environment variables / .env file.
 """
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
-from typing import Literal
+
 
 
 class Settings(BaseSettings):
@@ -15,11 +15,8 @@ class Settings(BaseSettings):
     )
 
     # ── LLM ──────────────────────────────────────────────────
-    llm_provider: Literal["openai", "gemini"] = "openai"
-    openai_api_key: str = ""
-    openai_model: str = "gpt-4o"
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-1.5-pro"
+    gemini_model: str = "gemini-2.0-flash"
     llm_temperature: float = 0.1
     confidence_threshold: float = 0.6
 
