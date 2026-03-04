@@ -5,7 +5,7 @@ and compute rolling analytics.
 """
 from datetime import datetime
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy import select, func, case
+from sqlalchemy import select, func, case, delete
 
 from backend.config import settings
 from backend.models.db_models import Base, QueryLog
@@ -83,6 +83,25 @@ async def get_history(limit: int = 50, offset: int = 0) -> HistoryResponse:
         rows = rows_result.scalars().all()
         items = [QueryHistoryItem.model_validate(r) for r in rows]
         return HistoryResponse(items=items, total=total)
+
+
+async def delete_history_items(item_ids: list[int]) -> int:
+    """Deletes specific query history records by ID. Returns number deleted."""
+    if not item_ids:
+        return 0
+    async with _SessionLocal() as session:
+        result = await session.execute(
+            delete(QueryLog).where(QueryLog.id.in_(item_ids))
+        )
+        await session.commit()
+        return result.rowcount
+
+async def clear_all_history() -> int:
+    """Deletes all query history records. Returns number deleted."""
+    async with _SessionLocal() as session:
+        result = await session.execute(delete(QueryLog))
+        await session.commit()
+        return result.rowcount
 
 
 async def get_metrics() -> MetricsResponse:
