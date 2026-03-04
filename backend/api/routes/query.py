@@ -8,12 +8,17 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
 from backend.models.schemas import NLQueryRequest, QueryResponse, ExecutionResult
+from backend.core.llm_generator import llm_generator
+from backend.core.schema_loader import schema_loader
 from backend.core.correction_loop import run_pipeline, MaxRetriesExceeded
 from backend.core.executor import query_executor
 from backend.config import settings
 from backend.monitoring.metrics_tracker import persist_query_log
 
 router = APIRouter()
+
+# Simple in-memory cache for dynamic prompts to avoid LLM spam on UI refresh
+_prompts_cache = {}
 
 
 @router.post("/query", response_model=QueryResponse)
@@ -124,3 +129,60 @@ async def handle_query(request: NLQueryRequest):
         latency_ms=latency_ms,
         raw_llm_output=pipeline.raw_llm_json,
     )
+
+
+@router.get("/prompts")
+async def get_dynamic_prompts():
+    """Returns 4 dynamically generated business questions based on the current schema."""
+    tables = await schema_loader.load()
+    if not tables:
+        return {"prompts": ["Upload a dataset to get started", "Show top 5 rows", "Count total records", "Show table summary"]}
+
+    # Build schema-aware fallback prompts from the actual table/column names
+    table_list = list(tables.values())
+    first_table = table_list[0]
+    table_name = first_table.name
+
+    # Pick some column names for variety
+    col_names = [c.name for c in first_table.columns]
+    numeric_cols = [c.name for c in first_table.columns if c.data_type and any(t in c.data_type.lower() for t in ["int", "float", "numeric", "double", "decimal", "real"])]
+    text_cols = [c.name for c in first_table.columns if c.data_type and any(t in c.data_type.lower() for t in ["varchar", "text", "char"])]
+
+    def _schema_fallback():
+        prompts = [f"Show top 5 rows from {table_name}"]
+        if numeric_cols:
+            prompts.append(f"What is the average {numeric_cols[0]} across all records?")
+        elif col_names:
+            prompts.append(f"Count total records grouped by {col_names[0]}")
+        if text_cols:
+            prompts.append(f"List distinct values in the {text_cols[0]} column")
+        elif len(col_names) > 1:
+            prompts.append(f"Group the data by {col_names[1]} and count records")
+        prompts.append(f"Show me summary statistics for {table_name}")
+        return prompts[:4]
+
+    # Cache key based on table shape
+    cache_key = "_".join(sorted(f"{t.name}:{len(t.columns)}" for t in tables.values()))
+    if cache_key in _prompts_cache:
+        return {"prompts": _prompts_cache[cache_key]}
+
+    try:
+        prompts = await llm_generator.generate_prompts(tables)
+        safe_prompts = [p.strip() for p in prompts if isinstance(p, str) and len(p.strip()) > 3]
+
+        # Pad with schema-aware fallbacks instead of generic defaults
+        fallbacks = _schema_fallback()
+        while len(safe_prompts) < 4:
+            safe_prompts.append(fallbacks[len(safe_prompts) % len(fallbacks)])
+
+        final_prompts = safe_prompts[:4]
+        _prompts_cache[cache_key] = final_prompts
+        return {"prompts": final_prompts}
+    except Exception as e:
+        print(f"Failed to generate dynamic prompts: {e}")
+        # Use schema-aware fallback — not hardcoded generic strings
+        fallback = _schema_fallback()
+        _prompts_cache[cache_key] = fallback
+        return {"prompts": fallback}
+
+
