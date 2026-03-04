@@ -158,7 +158,7 @@ def infer_schema_from_bytes(
 
         series = df[orig_name]
         pg_type, date_detected = _infer_col_type(series)
-        nullable = series.isna().any()
+        nullable = bool(series.isna().any())
 
         columns.append(ColDef(
             name=safe,
