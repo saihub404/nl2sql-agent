@@ -219,6 +219,16 @@ async def list_datasets():
     )
 
 
+@router.get("/schema")
+async def get_schema():
+    """Return schema columns for UI display."""
+    schema_map = schema_loader.get_cached()
+    return {
+        table_name: [{"name": col.name, "type": col.data_type} for col in ts.columns]
+        for table_name, ts in schema_map.items()
+    }
+
+
 @router.delete("/datasets/{table_name}")
 async def delete_dataset(table_name: str):
     """Drop table from DB, remove from FAISS index, delete registry record."""
