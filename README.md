@@ -197,3 +197,6 @@ The eval suite runs 20 NL/SQL pairs and measures exact match accuracy, correctio
 ---
 
 If you run into issues or want to extend this (e.g., add support for more databases or a different LLM), feel free to open an issue or a PR. The architecture is intentionally modular so swapping components should be straightforward.
+
+### 🎉 Happy Querying!
+If you find this project useful, feel free to give it a ⭐!
