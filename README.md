@@ -1,5 +1,7 @@
 # NL2SQL Agent
 
+![Dashboard Overview](docs/images/dashboard.png)
+
 I built this project because I was tired of switching between a SQL client and whatever tool was generating queries for me. The idea is simple: you ask a question in plain English, and the system figures out which tables are relevant, generates the SQL, validates it, and runs it — all in one shot.
 
 It connects to your PostgreSQL database, reads the schema automatically, and uses Google Gemini to handle the actual natural language understanding. There's a self-correction loop built in, so if the generated SQL has an error, it'll try to fix itself up to two times before giving up.
