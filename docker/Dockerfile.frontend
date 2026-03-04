@@ -1,11 +1,18 @@
-FROM python:3.11-slim
+FROM node:20-alpine
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir streamlit==1.33.0 plotly==5.20.0 pandas==2.2.1 httpx==0.27.0
+# Copy package.json and package-lock.json
+COPY frontend/package*.json ./
 
-COPY frontend/ ./frontend/
+# Install dependencies based on the lockfile
+RUN npm ci
 
-EXPOSE 8501
+# Copy the rest of the frontend source code
+COPY frontend/ .
 
-CMD ["streamlit", "run", "frontend/app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
+# Expose the Vite dev server port
+EXPOSE 5173
+
+# Start Vite in host mode so it's accessible from outside the container
+CMD ["npm", "run", "dev", "--", "--host"]
